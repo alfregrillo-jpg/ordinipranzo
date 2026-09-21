@@ -18,24 +18,24 @@ def init_db():
     conn.close()
 
 # --- FUNZIONE AI PER IL MENU ---
-def parse_menu_from_image(image_bytes):
-    # ⚠️ INSERISCI QUI LA TUA CHIAVE API (lascia le virgolette ai lati)
+def parse_menu_from_image(image_bytes, mime_type):
+    # ⚠️ INSERISCI QUI LA TUA CHIAVE API
     genai.configure(api_key="AQ.Ab8RN6IvjQoRbOigGu6jidu8ppA5ICdq91f7r9x0us8kTcF0mA")
     
-    model = genai.GenerativeModel('gemini-2.5-flash')
+    model = genai.GenerativeModel('gemini-1.5-flash')
     prompt = """
     Leggi il menu in questa foto. Restituisci ESATTAMENTE e SOLO un file JSON (senza formattazione markdown) con questa struttura: 
     {"Primi": ["Piatto 1", "Piatto 2"], "Secondi": ["Piatto 3"], "Contorni": ["Piatto 4"], "Dolci/Frutta": ["Piatto 5"]}
     Se una categoria non c'è, metti una lista vuota [].
     """
-    immagine = Image.open(io.BytesIO(image_bytes))
-    response = model.generate_content([prompt, immagine])
+    
+    pic = [{"mime_type": mime_type, "data": image_bytes}]
+    response = model.generate_content([prompt, pic[0]])
     
     try:
         return json.loads(response.text)
     except:
         return {"Primi": [], "Secondi": [], "Contorni": [], "Dolci/Frutta": []}
-
 # --- INTERFACCIA APP ---
 st.set_page_config(page_title="Ordini Pranzo Ufficio", layout="centered")
 init_db()
@@ -82,7 +82,7 @@ elif st.session_state.role == 'admin':
         
         if foto_menu and st.button("Analizza e Genera Menu"):
             with st.spinner("L'Intelligenza Artificiale sta leggendo il menu..."):
-                menu_estratto = parse_menu_from_image(foto_menu.read())
+               menu_estratto = parse_menu_from_image(foto_menu.read(), foto_menu.type)
                 conn = sqlite3.connect('pranzo_ufficio.db')
                 c = conn.cursor()
                 c.execute("DELETE FROM menu WHERE date=?", (oggi,))
