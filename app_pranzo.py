@@ -19,10 +19,8 @@ def init_db():
     conn.commit()
     conn.close()
 
-# --- FUNZIONE FINTA AI (Da sostituire con le API vere) ---
 import google.generativeai as genai
 import json
-
 def parse_menu_from_image(image_bytes):
 import google.generativeai as genai
 import json
@@ -30,7 +28,7 @@ from PIL import Image
 import io
 
 def parse_menu_from_image(image_bytes):
-    "AQ.Ab8RN6IvjQoRbOigGu6jidu8ppA5ICdq91f7r9x0us8kTcF0mA"
+    # Le righe qui sotto devono avere 4 spazi all'inizio!
     genai.configure(api_key="AQ.Ab8RN6IvjQoRbOigGu6jidu8ppA5ICdq91f7r9x0us8kTcF0mA")
     
     model = genai.GenerativeModel('gemini-1.5-flash')
@@ -40,7 +38,6 @@ def parse_menu_from_image(image_bytes):
     Se una categoria non c'è, metti una lista vuota [].
     """
     
-    # Questo converte l'immagine in modo che Gemini la legga sempre, a prescindere dal formato
     immagine = Image.open(io.BytesIO(image_bytes))
     
     response = model.generate_content([prompt, immagine])
@@ -49,7 +46,6 @@ def parse_menu_from_image(image_bytes):
         return json.loads(response.text)
     except:
         return {"Primi": [], "Secondi": [], "Contorni": [], "Dolci/Frutta": []}
-
 # --- INTERFACCIA APP ---
 st.set_page_config(page_title="Ordini Pranzo Ufficio", layout="centered")
 init_db()
