@@ -19,7 +19,7 @@ def init_db():
 
 # --- FUNZIONE AI PER IL MENU ---
 def parse_menu_from_image(image_bytes, mime_type):
-    # ⚠️ INSERISCI QUI LA TUA CHIAVE API
+    # ⚠️ INSERISCI QUI LA TUA CHIAVE API (lascia le virgolette ai lati)
     genai.configure(api_key="AQ.Ab8RN6IvjQoRbOigGu6jidu8ppA5ICdq91f7r9x0us8kTcF0mA")
     
     model = genai.GenerativeModel('gemini-1.5-flash')
@@ -36,6 +36,7 @@ def parse_menu_from_image(image_bytes, mime_type):
         return json.loads(response.text)
     except:
         return {"Primi": [], "Secondi": [], "Contorni": [], "Dolci/Frutta": []}
+
 # --- INTERFACCIA APP ---
 st.set_page_config(page_title="Ordini Pranzo Ufficio", layout="centered")
 init_db()
@@ -82,7 +83,7 @@ elif st.session_state.role == 'admin':
         
         if foto_menu and st.button("Analizza e Genera Menu"):
             with st.spinner("L'Intelligenza Artificiale sta leggendo il menu..."):
-               menu_estratto = parse_menu_from_image(foto_menu.read(), foto_menu.type)
+                menu_estratto = parse_menu_from_image(foto_menu.read(), foto_menu.type)
                 conn = sqlite3.connect('pranzo_ufficio.db')
                 c = conn.cursor()
                 c.execute("DELETE FROM menu WHERE date=?", (oggi,))
