@@ -20,7 +20,7 @@ def init_db():
 def parse_menu_from_image(file_foto):
     try:
         # ⚠️ INSERISCI QUI LA TUA CHIAVE API
-        genai.configure(api_key="INCOLLA_QUI_LA_TUA_CHIAVE_API")
+        genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
         
         # NOME CORRETTO DEL MODELLO
         model = genai.GenerativeModel('gemini-1.5-flash')
