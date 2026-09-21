@@ -103,7 +103,7 @@ elif st.session_state.role == 'admin':
         ordini = c.fetchall()
         conn.close()
 
-        if non ordini:
+        if not ordini:
             st.info("Nessun ordine ricevuto finora oggi.")
         else:
             testo_whatsapp = f"*ORDINI PRANZO DEL {oggi}*\n\n"
