@@ -1,34 +1,25 @@
 import streamlit as st
 import sqlite3
 import datetime
-# import google.generativeai as genai # Decommentare per usare l'AI reale
+import json
+import io
+from PIL import Image
+import google.generativeai as genai
 
 # --- CONFIGURAZIONE DATABASE ---
 def init_db():
     conn = sqlite3.connect('pranzo_ufficio.db')
     c = conn.cursor()
-    # Tabella Utenti (ruolo: 'admin' o 'user')
     c.execute('''CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, password TEXT, role TEXT)''')
-    # Tabella Menu del giorno
     c.execute('''CREATE TABLE IF NOT EXISTS menu (date TEXT, category TEXT, item TEXT)''')
-    # Tabella Ordini
     c.execute('''CREATE TABLE IF NOT EXISTS orders (date TEXT, username TEXT, primo TEXT, secondo TEXT, contorno TEXT, extra TEXT, not_eating BOOLEAN)''')
-    
-    # Crea admin di default se non esiste
     c.execute("INSERT OR IGNORE INTO users VALUES ('admin', 'admin123', 'admin')")
     conn.commit()
     conn.close()
 
-import google.generativeai as genai
-import json
+# --- FUNZIONE AI PER IL MENU ---
 def parse_menu_from_image(image_bytes):
-import google.generativeai as genai
-import json
-from PIL import Image
-import io
-
-def parse_menu_from_image(image_bytes):
-    # Le righe qui sotto devono avere 4 spazi all'inizio!
+    # ⚠️ INSERISCI QUI LA TUA CHIAVE API (lascia le virgolette ai lati)
     genai.configure(api_key="AQ.Ab8RN6IvjQoRbOigGu6jidu8ppA5ICdq91f7r9x0us8kTcF0mA")
     
     model = genai.GenerativeModel('gemini-1.5-flash')
@@ -37,20 +28,18 @@ def parse_menu_from_image(image_bytes):
     {"Primi": ["Piatto 1", "Piatto 2"], "Secondi": ["Piatto 3"], "Contorni": ["Piatto 4"], "Dolci/Frutta": ["Piatto 5"]}
     Se una categoria non c'è, metti una lista vuota [].
     """
-    
     immagine = Image.open(io.BytesIO(image_bytes))
-    
     response = model.generate_content([prompt, immagine])
     
     try:
         return json.loads(response.text)
     except:
         return {"Primi": [], "Secondi": [], "Contorni": [], "Dolci/Frutta": []}
+
 # --- INTERFACCIA APP ---
 st.set_page_config(page_title="Ordini Pranzo Ufficio", layout="centered")
 init_db()
 
-# Gestione Sessione (Login)
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.username = ""
@@ -93,10 +82,7 @@ elif st.session_state.role == 'admin':
         
         if foto_menu and st.button("Analizza e Genera Menu"):
             with st.spinner("L'Intelligenza Artificiale sta leggendo il menu..."):
-                # 1. Analisi immagine
                 menu_estratto = parse_menu_from_image(foto_menu.read())
-                
-                # 2. Salvataggio nel DB per la data di oggi (cancellando vecchi dati di oggi)
                 conn = sqlite3.connect('pranzo_ufficio.db')
                 c = conn.cursor()
                 c.execute("DELETE FROM menu WHERE date=?", (oggi,))
@@ -122,12 +108,11 @@ elif st.session_state.role == 'admin':
             totale_piatti = {}
 
             for ord in ordini:
-                if ord[5]: # Se not_eating è True
+                if ord[5]: 
                     continue
                 piatti_scelti = [p for p in ord[1:5] if p and p != "Nessuno"]
                 testo_whatsapp += f"- {ord[0]}: {', '.join(piatti_scelti)}\n"
                 
-                # Conteggio per il ristorante
                 for p in piatti_scelti:
                     totale_piatti[p] = totale_piatti.get(p, 0) + 1
             
@@ -161,7 +146,6 @@ elif st.session_state.role == 'user':
     conn = sqlite3.connect('pranzo_ufficio.db')
     c = conn.cursor()
     
-    # Controlla se ha già ordinato oggi
     c.execute("SELECT * FROM orders WHERE date=? AND username=?", (oggi, st.session_state.username))
     ha_ordinato = c.fetchone()
     
@@ -175,7 +159,6 @@ elif st.session_state.role == 'user':
         if not menu_items:
             st.info("L'amministratore non ha ancora caricato il menu di oggi.")
         else:
-            # Organizza menu
             menu_dict = {"Primi": ["Nessuno"], "Secondi": ["Nessuno"], "Contorni": ["Nessuno"], "Dolci/Frutta": ["Nessuno"]}
             for cat, item in menu_items:
                 if cat in menu_dict:
