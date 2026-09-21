@@ -19,11 +19,8 @@ def init_db():
 # --- FUNZIONE AI PER IL MENU ---
 def parse_menu_from_image(file_foto):
     try:
-        # ⚠️ INSERISCI QUI LA TUA CHIAVE API
+        # Prende la chiave dalla cassaforte sicura di Streamlit
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-        
-        # NOME CORRETTO DEL MODELLO
-        model = genai.GenerativeModel('gemini-1.5-flash')
         
         prompt = """
         Leggi il menu in questa foto. Restituisci ESATTAMENTE e SOLO un file JSON (senza formattazione markdown) con questa struttura: 
@@ -32,15 +29,37 @@ def parse_menu_from_image(file_foto):
         """
         
         immagine = Image.open(file_foto)
-        response = model.generate_content([prompt, immagine])
         
-        # Pulisce eventuali formattazioni extra che confondono il sistema
+        # Lista dei modelli Google dal più recente al più collaudato
+        modelli_da_provare = [
+            'gemini-1.5-flash-latest', 
+            'gemini-1.5-flash', 
+            'gemini-1.5-pro',
+            'gemini-pro-vision'
+        ]
+        
+        response = None
+        ultimo_errore = ""
+        
+        # L'app li prova uno ad uno finché non trova quello funzionante per te
+        for nome_modello in modelli_da_provare:
+            try:
+                model = genai.GenerativeModel(nome_modello)
+                response = model.generate_content([prompt, immagine])
+                break  # Se ha successo, ferma il ciclo
+            except Exception as e:
+                ultimo_errore = str(e)
+                continue  # Passa al modello successivo
+        
+        if not response:
+            st.error(f"Modello non trovato per questo account. Ultimo errore: {ultimo_errore}")
+            return {"Primi": [], "Secondi": [], "Contorni": [], "Dolci/Frutta": []}
+            
         testo = response.text.replace("```json", "").replace("```", "").strip()
         return json.loads(testo)
         
     except Exception as e:
-        # Ora se c'è un errore lo vedremo scritto chiaramente nell'app!
-        st.error(f"Errore di comunicazione con Google: {str(e)}")
+        st.error(f"Errore di sistema: {str(e)}")
         return {"Primi": [], "Secondi": [], "Contorni": [], "Dolci/Frutta": []}
 
 # --- INTERFACCIA APP ---
