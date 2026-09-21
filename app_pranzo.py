@@ -18,25 +18,29 @@ def init_db():
 
 # --- FUNZIONE AI PER IL MENU ---
 def parse_menu_from_image(file_foto):
-    # ⚠️ INSERISCI QUI LA TUA CHIAVE API TRA LE VIRGOLETTE
-    genai.configure(api_key="AQ.Ab8RN6IvjQoRbOigGu6jidu8ppA5ICdq91f7r9x0us8kTcF0mA")
-    
-    # ⚠️ ABBIAMO IMPOSTATO IL MODELLO PIU' RECENTE E FUNZIONANTE
-    model = genai.GenerativeModel('gemini-2.5-flash')
-    
-    prompt = """
-    Leggi il menu in questa foto. Restituisci ESATTAMENTE e SOLO un file JSON (senza formattazione markdown) con questa struttura: 
-    {"Primi": ["Piatto 1", "Piatto 2"], "Secondi": ["Piatto 3"], "Contorni": ["Piatto 4"], "Dolci/Frutta": ["Piatto 5"]}
-    Se una categoria non c'è, metti una lista vuota [].
-    """
-    
-    # Questo comando legge qualsiasi formato immagine in modo nativo
-    immagine = Image.open(file_foto)
-    response = model.generate_content([prompt, immagine])
-    
     try:
-        return json.loads(response.text)
-    except:
+        # ⚠️ INSERISCI QUI LA TUA CHIAVE API
+        genai.configure(api_key="INCOLLA_QUI_LA_TUA_CHIAVE_API")
+        
+        # NOME CORRETTO DEL MODELLO
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        
+        prompt = """
+        Leggi il menu in questa foto. Restituisci ESATTAMENTE e SOLO un file JSON (senza formattazione markdown) con questa struttura: 
+        {"Primi": ["Piatto 1", "Piatto 2"], "Secondi": ["Piatto 3"], "Contorni": ["Piatto 4"], "Dolci/Frutta": ["Piatto 5"]}
+        Se una categoria non c'è, metti una lista vuota [].
+        """
+        
+        immagine = Image.open(file_foto)
+        response = model.generate_content([prompt, immagine])
+        
+        # Pulisce eventuali formattazioni extra che confondono il sistema
+        testo = response.text.replace("```json", "").replace("```", "").strip()
+        return json.loads(testo)
+        
+    except Exception as e:
+        # Ora se c'è un errore lo vedremo scritto chiaramente nell'app!
+        st.error(f"Errore di comunicazione con Google: {str(e)}")
         return {"Primi": [], "Secondi": [], "Contorni": [], "Dolci/Frutta": []}
 
 # --- INTERFACCIA APP ---
@@ -85,18 +89,19 @@ elif st.session_state.role == 'admin':
         
         if foto_menu and st.button("Analizza e Genera Menu"):
             with st.spinner("L'Intelligenza Artificiale sta leggendo il menu..."):
-                # Passa la foto direttamente all'AI
                 menu_estratto = parse_menu_from_image(foto_menu)
                 
-                conn = sqlite3.connect('pranzo_ufficio.db')
-                c = conn.cursor()
-                c.execute("DELETE FROM menu WHERE date=?", (oggi,))
-                for categoria, piatti in menu_estratto.items():
-                    for piatto in piatti:
-                        c.execute("INSERT INTO menu VALUES (?, ?, ?)", (oggi, categoria, piatto))
-                conn.commit()
-                conn.close()
-            st.success("Menu aggiornato per tutti gli utenti!")
+                # Salva nel DB solo se ci sono piatti estratti
+                if any(menu_estratto.values()):
+                    conn = sqlite3.connect('pranzo_ufficio.db')
+                    c = conn.cursor()
+                    c.execute("DELETE FROM menu WHERE date=?", (oggi,))
+                    for categoria, piatti in menu_estratto.items():
+                        for piatto in piatti:
+                            c.execute("INSERT INTO menu VALUES (?, ?, ?)", (oggi, categoria, piatto))
+                    conn.commit()
+                    conn.close()
+                    st.success("Menu aggiornato per tutti gli utenti!")
 
     with tab2:
         st.subheader("Riepilogo Ordini")
