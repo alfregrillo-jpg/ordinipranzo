@@ -20,19 +20,28 @@ def init_db():
     conn.close()
 
 # --- FUNZIONE FINTA AI (Da sostituire con le API vere) ---
+import google.generativeai as genai
+import json
+
 def parse_menu_from_image(image_bytes):
+    # Inserisci qui la tua chiave API tra le virgolette
+    genai.configure(api_key="INCOLLA_QUI_LA_TUA_CHIAVE_API")
+    
+    model = genai.GenerativeModel('gemini-1.5-flash')
+    prompt = """
+    Leggi il menu in questa foto. Restituisci ESATTAMENTE e SOLO un file JSON (senza formattazione markdown) con questa struttura: 
+    {"Primi": ["Piatto 1", "Piatto 2"], "Secondi": ["Piatto 3"], "Contorni": ["Piatto 4"], "Dolci/Frutta": ["Piatto 5"]}
+    Se una categoria non c'è, metti una lista vuota [].
     """
-    Qui collegherai le API (es. Google Gemini o OpenAI Vision) per leggere la foto.
-    Il prompt sarà: "Leggi questa foto del menu e restituisci un JSON con le chiavi: 
-    'Primi', 'Secondi', 'Contorni', 'Dolci/Frutta' e i relativi piatti come array."
-    Per ora restituiamo dati simulati.
-    """
-    return {
-        "Primi": ["Pasta al pomodoro", "Risotto ai funghi"],
-        "Secondi": ["Cotoletta", "Arrosto di vitello"],
-        "Contorni": ["Insalata", "Patate al forno"],
-        "Dolci/Frutta": ["Tiramisù", "Macedonia"]
-    }
+    
+    pic = [{"mime_type": "image/jpeg", "data": image_bytes}]
+    response = model.generate_content([prompt, pic[0]])
+    
+    try:
+        return json.loads(response.text)
+    except:
+        # Se l'AI fa un errore di formattazione, restituisce un menu vuoto
+        return {"Primi": [], "Secondi": [], "Contorni": [], "Dolci/Frutta": []}
 
 # --- INTERFACCIA APP ---
 st.set_page_config(page_title="Ordini Pranzo Ufficio", layout="centered")
