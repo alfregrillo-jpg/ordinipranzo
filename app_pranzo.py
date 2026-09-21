@@ -19,23 +19,11 @@ def init_db():
 # --- FUNZIONE AI PER IL MENU ---
 def parse_menu_from_image(file_foto):
     try:
+        # Prende la chiave dalla cassaforte di Streamlit
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
         
-        # 1. Chiede direttamente a Google quali modelli sono abilitati per la tua chiave
-        modelli_disponibili = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        
-        if not modelli_disponibili:
-            st.error("La tua chiave API è attiva, ma Google non ha abilitato nessun modello per questo account.")
-            return {"Primi": [], "Secondi": [], "Contorni": [], "Dolci/Frutta": []}
-            
-        # 2. Sceglie automaticamente il miglior modello disponibile (priorità al 1.5 Flash)
-        nome_modello_scelto = modelli_disponibili[0]
-        for nome in modelli_disponibili:
-            if "1.5-flash" in nome:
-                nome_modello_scelto = nome
-                break
-                
-        model = genai.GenerativeModel(nome_modello_scelto)
+        # Inseriamo ESATTAMENTE il modello che Google ci ha appena richiesto!
+        model = genai.GenerativeModel('gemini-3.6-flash')
         
         prompt = """
         Leggi il menu in questa foto. Restituisci ESATTAMENTE e SOLO un file JSON (senza formattazione markdown) con questa struttura: 
@@ -43,17 +31,16 @@ def parse_menu_from_image(file_foto):
         Se una categoria non c'è, metti una lista vuota [].
         """
         
-        file_foto.seek(0) # Assicura che l'immagine venga letta dall'inizio
+        file_foto.seek(0) # Assicura la corretta lettura del file
         immagine = Image.open(file_foto)
         response = model.generate_content([prompt, immagine])
         
+        # Pulisce il testo e lo trasforma in dati per l'app
         testo = response.text.replace("```json", "").replace("```", "").strip()
         return json.loads(testo)
         
     except Exception as e:
-        # Se fallisce, ora stamperà a schermo ESATTAMENTE quali modelli puoi usare!
-        messaggio = f"Errore usando '{nome_modello_scelto}'.\nModelli che Google ti permette di usare: {modelli_disponibili}\nDettaglio errore: {str(e)}"
-        st.error(messaggio)
+        st.error(f"Errore di lettura: {str(e)}")
         return {"Primi": [], "Secondi": [], "Contorni": [], "Dolci/Frutta": []}
 # --- INTERFACCIA APP ---
 st.set_page_config(page_title="Ordini Pranzo Ufficio", layout="centered")
