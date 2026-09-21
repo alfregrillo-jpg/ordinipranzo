@@ -19,8 +19,23 @@ def init_db():
 # --- FUNZIONE AI PER IL MENU ---
 def parse_menu_from_image(file_foto):
     try:
-        # Prende la chiave dalla cassaforte sicura di Streamlit
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+        
+        # 1. Chiede direttamente a Google quali modelli sono abilitati per la tua chiave
+        modelli_disponibili = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+        
+        if not modelli_disponibili:
+            st.error("La tua chiave API è attiva, ma Google non ha abilitato nessun modello per questo account.")
+            return {"Primi": [], "Secondi": [], "Contorni": [], "Dolci/Frutta": []}
+            
+        # 2. Sceglie automaticamente il miglior modello disponibile (priorità al 1.5 Flash)
+        nome_modello_scelto = modelli_disponibili[0]
+        for nome in modelli_disponibili:
+            if "1.5-flash" in nome:
+                nome_modello_scelto = nome
+                break
+                
+        model = genai.GenerativeModel(nome_modello_scelto)
         
         prompt = """
         Leggi il menu in questa foto. Restituisci ESATTAMENTE e SOLO un file JSON (senza formattazione markdown) con questa struttura: 
@@ -28,40 +43,18 @@ def parse_menu_from_image(file_foto):
         Se una categoria non c'è, metti una lista vuota [].
         """
         
+        file_foto.seek(0) # Assicura che l'immagine venga letta dall'inizio
         immagine = Image.open(file_foto)
+        response = model.generate_content([prompt, immagine])
         
-        # Lista dei modelli Google dal più recente al più collaudato
-        modelli_da_provare = [
-            'gemini-1.5-flash-latest', 
-            'gemini-1.5-flash', 
-            'gemini-1.5-pro',
-            'gemini-pro-vision'
-        ]
-        
-        response = None
-        ultimo_errore = ""
-        
-        # L'app li prova uno ad uno finché non trova quello funzionante per te
-        for nome_modello in modelli_da_provare:
-            try:
-                model = genai.GenerativeModel(nome_modello)
-                response = model.generate_content([prompt, immagine])
-                break  # Se ha successo, ferma il ciclo
-            except Exception as e:
-                ultimo_errore = str(e)
-                continue  # Passa al modello successivo
-        
-        if not response:
-            st.error(f"Modello non trovato per questo account. Ultimo errore: {ultimo_errore}")
-            return {"Primi": [], "Secondi": [], "Contorni": [], "Dolci/Frutta": []}
-            
         testo = response.text.replace("```json", "").replace("```", "").strip()
         return json.loads(testo)
         
     except Exception as e:
-        st.error(f"Errore di sistema: {str(e)}")
+        # Se fallisce, ora stamperà a schermo ESATTAMENTE quali modelli puoi usare!
+        messaggio = f"Errore usando '{nome_modello_scelto}'.\nModelli che Google ti permette di usare: {modelli_disponibili}\nDettaglio errore: {str(e)}"
+        st.error(messaggio)
         return {"Primi": [], "Secondi": [], "Contorni": [], "Dolci/Frutta": []}
-
 # --- INTERFACCIA APP ---
 st.set_page_config(page_title="Ordini Pranzo Ufficio", layout="centered")
 init_db()
