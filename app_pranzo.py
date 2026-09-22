@@ -2,46 +2,52 @@ import streamlit as st
 import sqlite3
 import datetime
 import json
+import urllib.parse
 from PIL import Image
 import google.generativeai as genai
 
-# --- CONFIGURAZIONE DATABASE ---
+# --- CONFIGURAZIONE NUOVO DATABASE (V2) ---
 def init_db():
-    conn = sqlite3.connect('pranzo_ufficio.db')
+    conn = sqlite3.connect('pranzo_ufficio_v2.db')
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, password TEXT, role TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS menu (date TEXT, category TEXT, item TEXT)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS orders (date TEXT, username TEXT, primo TEXT, secondo TEXT, contorno TEXT, extra TEXT, not_eating BOOLEAN)''')
+    # Tabella ordini aggiornata con campi note, fritti, piadine e pane
+    c.execute('''CREATE TABLE IF NOT EXISTS orders (
+                    date TEXT, username TEXT, 
+                    primo TEXT, secondo TEXT, note_secondi TEXT, 
+                    contorno TEXT, fritti TEXT, piadine TEXT, 
+                    extra TEXT, note_extra TEXT, pane BOOLEAN, not_eating BOOLEAN)''')
+    
     c.execute("INSERT OR IGNORE INTO users VALUES ('admin', 'admin123', 'admin')")
     conn.commit()
     conn.close()
 
-# --- FUNZIONE AI PER IL MENU ---
+# --- FUNZIONE AI AGGIORNATA ---
 def parse_menu_from_image(file_foto):
     try:
-        # Prende la chiave dalla cassaforte di Streamlit
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-        
-        # Inseriamo ESATTAMENTE il modello che Google ci ha appena richiesto!
         model = genai.GenerativeModel('gemini-3.6-flash')
         
         prompt = """
-        Leggi il menu in questa foto. Restituisci ESATTAMENTE e SOLO un file JSON (senza formattazione markdown) con questa struttura: 
-        {"Primi": ["Piatto 1", "Piatto 2"], "Secondi": ["Piatto 3"], "Contorni": ["Piatto 4"], "Dolci/Frutta": ["Piatto 5"]}
+        Leggi il menu in questa foto. Trova la data a cui si riferisce e tutti i piatti.
+        Restituisci ESATTAMENTE e SOLO un file JSON (senza formattazione markdown) con questa struttura: 
+        {"Data": "GG/MM/AAAA", "Primi": ["Piatto 1"], "Secondi": ["Piatto 2"], "Contorni": ["Piatto 3"], "Fritti": [], "Piadina Panini Farciti": [], "Dolci/Frutta": []}
+        Se la data non è specificata chiaramente, scrivi "Data non specificata".
         Se una categoria non c'è, metti una lista vuota [].
         """
         
-        file_foto.seek(0) # Assicura la corretta lettura del file
+        file_foto.seek(0) 
         immagine = Image.open(file_foto)
         response = model.generate_content([prompt, immagine])
         
-        # Pulisce il testo e lo trasforma in dati per l'app
         testo = response.text.replace("```json", "").replace("```", "").strip()
         return json.loads(testo)
         
     except Exception as e:
-        st.error(f"Errore di lettura: {str(e)}")
-        return {"Primi": [], "Secondi": [], "Contorni": [], "Dolci/Frutta": []}
+        st.error(f"Errore di lettura AI: {str(e)}")
+        return {}
+
 # --- INTERFACCIA APP ---
 st.set_page_config(page_title="Ordini Pranzo Ufficio", layout="centered")
 init_db()
@@ -58,7 +64,7 @@ if not st.session_state.logged_in:
     pass_input = st.text_input("Password", type="password")
     
     if st.button("Accedi"):
-        conn = sqlite3.connect('pranzo_ufficio.db')
+        conn = sqlite3.connect('pranzo_ufficio_v2.db')
         c = conn.cursor()
         c.execute("SELECT role FROM users WHERE username=? AND password=?", (user_input, pass_input))
         result = c.fetchone()
@@ -90,12 +96,17 @@ elif st.session_state.role == 'admin':
             with st.spinner("L'Intelligenza Artificiale sta leggendo il menu..."):
                 menu_estratto = parse_menu_from_image(foto_menu)
                 
-                # Salva nel DB solo se ci sono piatti estratti
-                if any(menu_estratto.values()):
-                    conn = sqlite3.connect('pranzo_ufficio.db')
+                if menu_estratto:
+                    conn = sqlite3.connect('pranzo_ufficio_v2.db')
                     c = conn.cursor()
-                    c.execute("DELETE FROM menu WHERE date=?", (oggi,))
+                    c.execute("DELETE FROM menu WHERE date=?", (oggi,)) # Pulisce i vecchi menu di oggi
+                    
                     for categoria, piatti in menu_estratto.items():
+                        # Salviamo la data estratta in modo speciale per recuperarla dopo
+                        if categoria == "Data":
+                            c.execute("INSERT INTO menu VALUES (?, ?, ?)", (oggi, "DataEstratta", str(piatti)))
+                            continue
+                        
                         for piatto in piatti:
                             c.execute("INSERT INTO menu VALUES (?, ?, ?)", (oggi, categoria, piatto))
                     conn.commit()
@@ -104,40 +115,71 @@ elif st.session_state.role == 'admin':
 
     with tab2:
         st.subheader("Riepilogo Ordini")
-        conn = sqlite3.connect('pranzo_ufficio.db')
+        conn = sqlite3.connect('pranzo_ufficio_v2.db')
         c = conn.cursor()
-        c.execute("SELECT username, primo, secondo, contorno, extra, not_eating FROM orders WHERE date=?", (oggi,))
+        
+        # Recupera la data letta dalla foto
+        c.execute("SELECT item FROM menu WHERE date=? AND category='DataEstratta'", (oggi,))
+        data_row = c.fetchone()
+        data_menu_letto = data_row[0] if data_row else oggi
+        
+        # Recupera tutti gli ordini
+        c.execute("SELECT username, primo, secondo, note_secondi, contorno, fritti, piadine, extra, note_extra, pane, not_eating FROM orders WHERE date=?", (oggi,))
         ordini = c.fetchall()
         conn.close()
 
         if not ordini:
             st.info("Nessun ordine ricevuto finora oggi.")
         else:
-            testo_whatsapp = f"*ORDINI PRANZO DEL {oggi}*\n\n"
+            testo_whatsapp = f"*Ordine per pranzo NOE PUSIANO, {data_menu_letto}*\n\n"
             totale_piatti = {}
 
             for ord in ordini:
-                if ord[5]: 
+                if ord[10]: # Se not_eating è True
                     continue
-                piatti_scelti = [p for p in ord[1:5] if p and p != "Nessuno"]
+                
+                piatti_scelti = []
+                # Primo
+                if ord[1] and ord[1] != "Nessuno": piatti_scelti.append(ord[1])
+                # Secondo con Note
+                if ord[2] and ord[2] != "Nessuno":
+                    sec = f"{ord[2]} ({ord[3]})" if ord[3] else ord[2]
+                    piatti_scelti.append(sec)
+                # Contorno, Fritti, Piadine
+                if ord[4] and ord[4] != "Nessuno": piatti_scelti.append(ord[4])
+                if ord[5] and ord[5] != "Nessuno": piatti_scelti.append(ord[5])
+                if ord[6] and ord[6] != "Nessuno": piatti_scelti.append(ord[6])
+                # Dolce/Frutta con Note
+                if ord[7] and ord[7] != "Nessuno":
+                    ext = f"{ord[7]} ({ord[8]})" if ord[8] else ord[7]
+                    piatti_scelti.append(ext)
+                # Pane
+                if ord[9]: 
+                    piatti_scelti.append("Pane fresco")
+
                 testo_whatsapp += f"- {ord[0]}: {', '.join(piatti_scelti)}\n"
                 
+                # Conteggio somme totali
                 for p in piatti_scelti:
                     totale_piatti[p] = totale_piatti.get(p, 0) + 1
             
-            testo_whatsapp += "\n*TOTALE PER IL RISTORANTE:*\n"
+            testo_whatsapp += "\n*TOTALE DA PREPARARE:*\n"
             for piatto, qta in totale_piatti.items():
                 testo_whatsapp += f"{qta}x {piatto}\n"
 
             st.code(testo_whatsapp, language="text")
-            st.caption("Premi l'icona copia in alto a destra nel riquadro per inviarlo al ristorante.")
+            
+            # MAGICO TASTO WHATSAPP
+            testo_wa_url = urllib.parse.quote(testo_whatsapp)
+            link_wa = f"https://wa.me/390284344847?text={testo_wa_url}"
+            st.link_button("🟢 Invia Ordine su WhatsApp", link_wa)
 
     with tab3:
         st.subheader("Crea nuovo collega")
         new_user = st.text_input("Nome Utente Collega")
         new_pass = st.text_input("Password Collega")
         if st.button("Crea Account"):
-            conn = sqlite3.connect('pranzo_ufficio.db')
+            conn = sqlite3.connect('pranzo_ufficio_v2.db')
             c = conn.cursor()
             c.execute("INSERT OR IGNORE INTO users VALUES (?, ?, 'user')", (new_user, new_pass))
             conn.commit()
@@ -152,7 +194,7 @@ elif st.session_state.role == 'user':
         st.rerun()
 
     oggi = datetime.date.today().strftime("%Y-%m-%d")
-    conn = sqlite3.connect('pranzo_ufficio.db')
+    conn = sqlite3.connect('pranzo_ufficio_v2.db')
     c = conn.cursor()
     
     c.execute("SELECT * FROM orders WHERE date=? AND username=?", (oggi, st.session_state.username))
@@ -161,14 +203,25 @@ elif st.session_state.role == 'user':
     if ha_ordinato:
         st.warning("Hai già inviato la tua scelta per oggi. Buon appetito (o buon digiuno)! 🍱")
     else:
-        st.subheader("Menu di Oggi")
         c.execute("SELECT category, item FROM menu WHERE date=?", (oggi,))
         menu_items = c.fetchall()
+        
+        # Cerchiamo la data del menu per mostrarla all'utente
+        data_mostrata = "Oggi"
+        for cat, item in menu_items:
+            if cat == "DataEstratta":
+                data_mostrata = item
         
         if not menu_items:
             st.info("L'amministratore non ha ancora caricato il menu di oggi.")
         else:
-            menu_dict = {"Primi": ["Nessuno"], "Secondi": ["Nessuno"], "Contorni": ["Nessuno"], "Dolci/Frutta": ["Nessuno"]}
+            st.subheader(f"Menu del: {data_mostrata}")
+            
+            menu_dict = {
+                "Primi": ["Nessuno"], "Secondi": ["Nessuno"], "Contorni": ["Nessuno"], 
+                "Fritti": ["Nessuno"], "Piadina Panini Farciti": ["Nessuno"], "Dolci/Frutta": ["Nessuno"]
+            }
+            
             for cat, item in menu_items:
                 if cat in menu_dict:
                     menu_dict[cat].append(item)
@@ -176,19 +229,33 @@ elif st.session_state.role == 'user':
             non_mangio = st.checkbox("Oggi non mangio / Porto da casa 🚫")
 
             if not non_mangio:
+                # Modifiche richieste aggiunte qui:
+                st.markdown("---")
+                pane = st.checkbox("🍞 Voglio anche il pane fresco", value=False)
+                st.markdown("---")
+                
                 primo = st.radio("Scegli il Primo:", menu_dict["Primi"])
+                
                 secondo = st.radio("Scegli il Secondo:", menu_dict["Secondi"])
+                note_secondi = st.text_input("📝 Note/Modifiche per il Secondo (es. Senza formaggio, ben cotto...)", placeholder="Scrivi qui eventuali richieste libere")
+                
                 contorno = st.radio("Scegli il Contorno:", menu_dict["Contorni"])
+                fritti = st.radio("Scegli Fritti:", menu_dict["Fritti"])
+                piadine = st.radio("Scegli Piadina o Panino:", menu_dict["Piadina Panini Farciti"])
+                
                 extra = st.radio("Scegli Dolce/Frutta:", menu_dict["Dolci/Frutta"])
+                note_extra = st.text_input("📝 Note/Modifiche per Dolce/Frutta", placeholder="Scrivi qui eventuali richieste libere")
             
-            if st.button("Invia Ordine"):
+            if st.button("Invia Ordine Finale"):
                 if non_mangio:
-                    c.execute("INSERT INTO orders VALUES (?, ?, '', '', '', '', 1)", (oggi, st.session_state.username))
+                    c.execute("INSERT INTO orders VALUES (?, ?, '', '', '', '', '', '', '', '', 0, 1)", 
+                              (oggi, st.session_state.username))
                 else:
-                    c.execute("INSERT INTO orders VALUES (?, ?, ?, ?, ?, ?, 0)", (oggi, st.session_state.username, primo, secondo, contorno, extra))
+                    c.execute("INSERT INTO orders VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)", 
+                              (oggi, st.session_state.username, primo, secondo, note_secondi, contorno, fritti, piadine, extra, note_extra, pane))
                 
                 conn.commit()
-                st.success("Ordine inviato con successo!")
+                st.success("Ordine inviato con successo al ristorante virtuale!")
                 st.rerun()
                 
     conn.close()
