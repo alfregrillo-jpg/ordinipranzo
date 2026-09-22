@@ -6,7 +6,7 @@ import urllib.parse
 from PIL import Image
 import google.generativeai as genai
 
-# --- CONFIGURAZIONE NUOVO DATABASE (V2) ---
+# --- CONFIGURAZIONE DATABASE ---
 def init_db():
     conn = sqlite3.connect('pranzo_ufficio_v2.db')
     c = conn.cursor()
@@ -22,7 +22,7 @@ def init_db():
     conn.commit()
     conn.close()
 
-# --- FUNZIONE AI AGGIORNATA ---
+# --- FUNZIONE AI ---
 def parse_menu_from_image(file_foto):
     try:
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
@@ -130,7 +130,7 @@ elif st.session_state.role == 'admin':
             totale_piatti = {}
 
             for ord in ordini:
-                if ord[10]: # Se not_eating è True
+                if ord[10]: # Se not_eating
                     testo_schermo += f"- 🚫 **{ord[0]}**: *Non mangia / Porta da casa*\n"
                     continue
                 
@@ -153,11 +153,9 @@ elif st.session_state.role == 'admin':
                 for p in piatti_scelti:
                     totale_piatti[p] = totale_piatti.get(p, 0) + 1
             
-            # Mostra i nomi a schermo per l'admin
             st.markdown(testo_schermo)
             st.markdown("---")
             
-            # Crea il blocco WhatsApp SOLO CON I TOTALI
             st.subheader("Messaggio per il Ristorante")
             testo_whatsapp = f"*Ordine per pranzo NOE PUSIANO, {data_menu_letto}*\n\n"
             for piatto, qta in totale_piatti.items():
@@ -165,7 +163,6 @@ elif st.session_state.role == 'admin':
 
             st.code(testo_whatsapp, language="text")
             
-            # MAGICO TASTO WHATSAPP (invia solo il testo_whatsapp)
             testo_wa_url = urllib.parse.quote(testo_whatsapp)
             link_wa = f"https://wa.me/390284344847?text={testo_wa_url}"
             st.link_button("🟢 Invia Ordine su WhatsApp", link_wa)
@@ -228,25 +225,40 @@ elif st.session_state.role == 'user':
                 pane = st.checkbox("🍞 Voglio anche il pane fresco", value=False)
                 st.markdown("---")
                 
+                # PRIMI
                 primo = st.radio("Scegli il Primo:", menu_dict["Primi"])
                 
-                secondo = st.radio("Scegli il Secondo:", menu_dict["Secondi"])
-                note_secondi = st.text_input("📝 Note/Modifiche per il Secondo (es. Senza formaggio, ben cotto...)", placeholder="Scrivi qui eventuali richieste libere")
+                # SECONDI (Con opzione "Altro")
+                secondo_selezionato = st.radio("Scegli il Secondo:", menu_dict["Secondi"] + ["Altro (scrivi tu)"])
+                if secondo_selezionato == "Altro (scrivi tu)":
+                    secondo_finale = st.text_input("📝 Scrivi il tuo Secondo fuori menu (es. Bresaola):")
+                    if not secondo_finale.strip(): 
+                        secondo_finale = "Secondo fuori menu (da chiedere)"
+                else:
+                    secondo_finale = secondo_selezionato
                 
+                # CONTORNI, FRITTI, PIADINE
                 contorno = st.radio("Scegli il Contorno:", menu_dict["Contorni"])
                 fritti = st.radio("Scegli Fritti:", menu_dict["Fritti"])
                 piadine = st.radio("Scegli Piadina o Panino:", menu_dict["Piadina Panini Farciti"])
                 
-                extra = st.radio("Scegli Dolce/Frutta:", menu_dict["Dolci/Frutta"])
-                note_extra = st.text_input("📝 Note/Modifiche per Dolce/Frutta", placeholder="Scrivi qui eventuali richieste libere")
-            
+                # DOLCI/FRUTTA (Con opzione "Altro")
+                extra_selezionato = st.radio("Scegli Dolce/Frutta:", menu_dict["Dolci/Frutta"] + ["Altro (scrivi tu)"])
+                if extra_selezionato == "Altro (scrivi tu)":
+                    extra_finale = st.text_input("📝 Scrivi il tuo Dolce/Frutta fuori menu (es. Frutti di bosco):")
+                    if not extra_finale.strip():
+                        extra_finale = "Dolce fuori menu (da chiedere)"
+                else:
+                    extra_finale = extra_selezionato
+                
             if st.button("Invia Ordine Finale"):
                 if non_mangio:
                     c.execute("INSERT INTO orders VALUES (?, ?, '', '', '', '', '', '', '', '', 0, 1)", 
                               (oggi, st.session_state.username))
                 else:
-                    c.execute("INSERT INTO orders VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)", 
-                              (oggi, st.session_state.username, primo, secondo, note_secondi, contorno, fritti, piadine, extra, note_extra, pane))
+                    # Abbiamo lasciato note_secondi e note_extra vuoti ("") perché ora il testo diventa direttamente il piatto
+                    c.execute("INSERT INTO orders VALUES (?, ?, ?, ?, '', ?, ?, ?, ?, '', ?, 0)", 
+                              (oggi, st.session_state.username, primo, secondo_finale, contorno, fritti, piadine, extra_finale, pane))
                 
                 conn.commit()
                 st.success("Ordine inviato con successo al ristorante virtuale!")
