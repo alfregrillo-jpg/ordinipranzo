@@ -128,12 +128,14 @@ elif st.session_state.role == 'admin':
         else:
             testo_schermo = "#### Dettaglio per persona (visibile solo a te)\n"
             totale_piatti = {}
+            numero_colleghi = 0
 
             for ord in ordini:
                 if ord[10]: # Se not_eating
                     testo_schermo += f"- 🚫 **{ord[0]}**: *Non mangia / Porta da casa*\n"
                     continue
                 
+                numero_colleghi += 1
                 piatti_scelti = []
                 if ord[1] and ord[1] != "Nessuno": piatti_scelti.append(ord[1])
                 if ord[2] and ord[2] != "Nessuno":
@@ -157,7 +159,9 @@ elif st.session_state.role == 'admin':
             st.markdown("---")
             
             st.subheader("Messaggio per il Ristorante")
-            testo_whatsapp = f"*Ordine per pranzo NOE PUSIANO, {data_menu_letto}*\n\n"
+            testo_whatsapp = f"*Ordine per pranzo NOE PUSIANO, {data_menu_letto}*\n"
+            testo_whatsapp += f"*Totale colleghi:* {numero_colleghi}\n\n"
+            
             for piatto, qta in totale_piatti.items():
                 testo_whatsapp += f"{qta}x {piatto}\n"
 
@@ -228,7 +232,7 @@ elif st.session_state.role == 'user':
                 # PRIMI
                 primo = st.radio("Scegli il Primo:", menu_dict["Primi"])
                 
-                # SECONDI (Con nuova opzione)
+                # SECONDI
                 secondo_selezionato = st.radio("Scegli il Secondo:", menu_dict["Secondi"] + ["componi il tuo piatto, scrivi tu"])
                 if secondo_selezionato == "componi il tuo piatto, scrivi tu":
                     secondo_finale = st.text_input("📝 Scrivi il tuo piatto qui sotto:")
@@ -242,7 +246,7 @@ elif st.session_state.role == 'user':
                 fritti = st.radio("Scegli Fritti:", menu_dict["Fritti"])
                 piadine = st.radio("Scegli Piadina o Panino:", menu_dict["Piadina Panini Farciti"])
                 
-                # DOLCI/FRUTTA (Con nuova opzione)
+                # DOLCI/FRUTTA
                 extra_selezionato = st.radio("Scegli Dolce/Frutta:", menu_dict["Dolci/Frutta"] + ["scrivi la tua frutta"])
                 if extra_selezionato == "scrivi la tua frutta":
                     extra_finale = st.text_input("📝 Scrivi la frutta che desideri qui sotto:")
