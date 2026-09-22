@@ -12,7 +12,6 @@ def init_db():
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, password TEXT, role TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS menu (date TEXT, category TEXT, item TEXT)''')
-    # Tabella ordini aggiornata con campi note, fritti, piadine e pane
     c.execute('''CREATE TABLE IF NOT EXISTS orders (
                     date TEXT, username TEXT, 
                     primo TEXT, secondo TEXT, note_secondi TEXT, 
@@ -99,14 +98,12 @@ elif st.session_state.role == 'admin':
                 if menu_estratto:
                     conn = sqlite3.connect('pranzo_ufficio_v2.db')
                     c = conn.cursor()
-                    c.execute("DELETE FROM menu WHERE date=?", (oggi,)) # Pulisce i vecchi menu di oggi
+                    c.execute("DELETE FROM menu WHERE date=?", (oggi,))
                     
                     for categoria, piatti in menu_estratto.items():
-                        # Salviamo la data estratta in modo speciale per recuperarla dopo
                         if categoria == "Data":
                             c.execute("INSERT INTO menu VALUES (?, ?, ?)", (oggi, "DataEstratta", str(piatti)))
                             continue
-                        
                         for piatto in piatti:
                             c.execute("INSERT INTO menu VALUES (?, ?, ?)", (oggi, categoria, piatto))
                     conn.commit()
@@ -118,12 +115,10 @@ elif st.session_state.role == 'admin':
         conn = sqlite3.connect('pranzo_ufficio_v2.db')
         c = conn.cursor()
         
-        # Recupera la data letta dalla foto
         c.execute("SELECT item FROM menu WHERE date=? AND category='DataEstratta'", (oggi,))
         data_row = c.fetchone()
         data_menu_letto = data_row[0] if data_row else oggi
         
-        # Recupera tutti gli ordini
         c.execute("SELECT username, primo, secondo, note_secondi, contorno, fritti, piadine, extra, note_extra, pane, not_eating FROM orders WHERE date=?", (oggi,))
         ordini = c.fetchall()
         conn.close()
@@ -131,45 +126,46 @@ elif st.session_state.role == 'admin':
         if not ordini:
             st.info("Nessun ordine ricevuto finora oggi.")
         else:
-            testo_whatsapp = f"*Ordine per pranzo NOE PUSIANO, {data_menu_letto}*\n\n"
+            testo_schermo = "#### Dettaglio per persona (visibile solo a te)\n"
             totale_piatti = {}
 
             for ord in ordini:
                 if ord[10]: # Se not_eating è True
+                    testo_schermo += f"- 🚫 **{ord[0]}**: *Non mangia / Porta da casa*\n"
                     continue
                 
                 piatti_scelti = []
-                # Primo
                 if ord[1] and ord[1] != "Nessuno": piatti_scelti.append(ord[1])
-                # Secondo con Note
                 if ord[2] and ord[2] != "Nessuno":
                     sec = f"{ord[2]} ({ord[3]})" if ord[3] else ord[2]
                     piatti_scelti.append(sec)
-                # Contorno, Fritti, Piadine
                 if ord[4] and ord[4] != "Nessuno": piatti_scelti.append(ord[4])
                 if ord[5] and ord[5] != "Nessuno": piatti_scelti.append(ord[5])
                 if ord[6] and ord[6] != "Nessuno": piatti_scelti.append(ord[6])
-                # Dolce/Frutta con Note
                 if ord[7] and ord[7] != "Nessuno":
                     ext = f"{ord[7]} ({ord[8]})" if ord[8] else ord[7]
                     piatti_scelti.append(ext)
-                # Pane
                 if ord[9]: 
                     piatti_scelti.append("Pane fresco")
 
-                testo_whatsapp += f"- {ord[0]}: {', '.join(piatti_scelti)}\n"
+                testo_schermo += f"- 👤 **{ord[0]}**: {', '.join(piatti_scelti)}\n"
                 
-                # Conteggio somme totali
                 for p in piatti_scelti:
                     totale_piatti[p] = totale_piatti.get(p, 0) + 1
             
-            testo_whatsapp += "\n*TOTALE DA PREPARARE:*\n"
+            # Mostra i nomi a schermo per l'admin
+            st.markdown(testo_schermo)
+            st.markdown("---")
+            
+            # Crea il blocco WhatsApp SOLO CON I TOTALI
+            st.subheader("Messaggio per il Ristorante")
+            testo_whatsapp = f"*Ordine per pranzo NOE PUSIANO, {data_menu_letto}*\n\n"
             for piatto, qta in totale_piatti.items():
                 testo_whatsapp += f"{qta}x {piatto}\n"
 
             st.code(testo_whatsapp, language="text")
             
-            # MAGICO TASTO WHATSAPP
+            # MAGICO TASTO WHATSAPP (invia solo il testo_whatsapp)
             testo_wa_url = urllib.parse.quote(testo_whatsapp)
             link_wa = f"https://wa.me/390284344847?text={testo_wa_url}"
             st.link_button("🟢 Invia Ordine su WhatsApp", link_wa)
@@ -206,7 +202,6 @@ elif st.session_state.role == 'user':
         c.execute("SELECT category, item FROM menu WHERE date=?", (oggi,))
         menu_items = c.fetchall()
         
-        # Cerchiamo la data del menu per mostrarla all'utente
         data_mostrata = "Oggi"
         for cat, item in menu_items:
             if cat == "DataEstratta":
@@ -229,7 +224,6 @@ elif st.session_state.role == 'user':
             non_mangio = st.checkbox("Oggi non mangio / Porto da casa 🚫")
 
             if not non_mangio:
-                # Modifiche richieste aggiunte qui:
                 st.markdown("---")
                 pane = st.checkbox("🍞 Voglio anche il pane fresco", value=False)
                 st.markdown("---")
