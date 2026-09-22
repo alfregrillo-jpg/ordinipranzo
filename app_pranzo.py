@@ -228,12 +228,12 @@ elif st.session_state.role == 'user':
                 # PRIMI
                 primo = st.radio("Scegli il Primo:", menu_dict["Primi"])
                 
-                # SECONDI (Con opzione "Altro")
-                secondo_selezionato = st.radio("Scegli il Secondo:", menu_dict["Secondi"] + ["Altro (scrivi tu)"])
-                if secondo_selezionato == "Altro (scrivi tu)":
-                    secondo_finale = st.text_input("📝 Scrivi il tuo Secondo fuori menu (es. Bresaola):")
+                # SECONDI (Con nuova opzione)
+                secondo_selezionato = st.radio("Scegli il Secondo:", menu_dict["Secondi"] + ["componi il tuo piatto, scrivi tu"])
+                if secondo_selezionato == "componi il tuo piatto, scrivi tu":
+                    secondo_finale = st.text_input("📝 Scrivi il tuo piatto qui sotto:")
                     if not secondo_finale.strip(): 
-                        secondo_finale = "Secondo fuori menu (da chiedere)"
+                        secondo_finale = "Piatto composto (da chiedere)"
                 else:
                     secondo_finale = secondo_selezionato
                 
@@ -242,12 +242,12 @@ elif st.session_state.role == 'user':
                 fritti = st.radio("Scegli Fritti:", menu_dict["Fritti"])
                 piadine = st.radio("Scegli Piadina o Panino:", menu_dict["Piadina Panini Farciti"])
                 
-                # DOLCI/FRUTTA (Con opzione "Altro")
-                extra_selezionato = st.radio("Scegli Dolce/Frutta:", menu_dict["Dolci/Frutta"] + ["Altro (scrivi tu)"])
-                if extra_selezionato == "Altro (scrivi tu)":
-                    extra_finale = st.text_input("📝 Scrivi il tuo Dolce/Frutta fuori menu (es. Frutti di bosco):")
+                # DOLCI/FRUTTA (Con nuova opzione)
+                extra_selezionato = st.radio("Scegli Dolce/Frutta:", menu_dict["Dolci/Frutta"] + ["scrivi la tua frutta"])
+                if extra_selezionato == "scrivi la tua frutta":
+                    extra_finale = st.text_input("📝 Scrivi la frutta che desideri qui sotto:")
                     if not extra_finale.strip():
-                        extra_finale = "Dolce fuori menu (da chiedere)"
+                        extra_finale = "Frutta (da chiedere)"
                 else:
                     extra_finale = extra_selezionato
                 
@@ -256,7 +256,6 @@ elif st.session_state.role == 'user':
                     c.execute("INSERT INTO orders VALUES (?, ?, '', '', '', '', '', '', '', '', 0, 1)", 
                               (oggi, st.session_state.username))
                 else:
-                    # Abbiamo lasciato note_secondi e note_extra vuoti ("") perché ora il testo diventa direttamente il piatto
                     c.execute("INSERT INTO orders VALUES (?, ?, ?, ?, '', ?, ?, ?, ?, '', ?, 0)", 
                               (oggi, st.session_state.username, primo, secondo_finale, contorno, fritti, piadine, extra_finale, pane))
                 
