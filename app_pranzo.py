@@ -127,7 +127,16 @@ elif st.session_state.role == 'admin':
             st.info("Nessun ordine ricevuto finora oggi.")
         else:
             testo_schermo = "#### Dettaglio per persona (visibile solo a te)\n"
-            totale_piatti = {}
+            
+            # Dizionari separati per categoria
+            totale_primi = {}
+            totale_secondi = {}
+            totale_contorni = {}
+            totale_fritti = {}
+            totale_piadine = {}
+            totale_extra = {}
+            totale_pane = 0
+            
             numero_colleghi = 0
 
             for ord in ordini:
@@ -137,33 +146,73 @@ elif st.session_state.role == 'admin':
                 
                 numero_colleghi += 1
                 piatti_scelti = []
-                if ord[1] and ord[1] != "Nessuno": piatti_scelti.append(ord[1])
+                
+                # Primo
+                if ord[1] and ord[1] != "Nessuno": 
+                    piatti_scelti.append(ord[1])
+                    totale_primi[ord[1]] = totale_primi.get(ord[1], 0) + 1
+                    
+                # Secondo
                 if ord[2] and ord[2] != "Nessuno":
                     sec = f"{ord[2]} ({ord[3]})" if ord[3] else ord[2]
                     piatti_scelti.append(sec)
-                if ord[4] and ord[4] != "Nessuno": piatti_scelti.append(ord[4])
-                if ord[5] and ord[5] != "Nessuno": piatti_scelti.append(ord[5])
-                if ord[6] and ord[6] != "Nessuno": piatti_scelti.append(ord[6])
+                    totale_secondi[sec] = totale_secondi.get(sec, 0) + 1
+                    
+                # Contorno
+                if ord[4] and ord[4] != "Nessuno": 
+                    piatti_scelti.append(ord[4])
+                    totale_contorni[ord[4]] = totale_contorni.get(ord[4], 0) + 1
+                    
+                # Fritti
+                if ord[5] and ord[5] != "Nessuno": 
+                    piatti_scelti.append(ord[5])
+                    totale_fritti[ord[5]] = totale_fritti.get(ord[5], 0) + 1
+                    
+                # Piadine
+                if ord[6] and ord[6] != "Nessuno": 
+                    piatti_scelti.append(ord[6])
+                    totale_piadine[ord[6]] = totale_piadine.get(ord[6], 0) + 1
+                    
+                # Dolce/Frutta
                 if ord[7] and ord[7] != "Nessuno":
                     ext = f"{ord[7]} ({ord[8]})" if ord[8] else ord[7]
                     piatti_scelti.append(ext)
+                    totale_extra[ext] = totale_extra.get(ext, 0) + 1
+                    
+                # Pane
                 if ord[9]: 
                     piatti_scelti.append("Pane fresco")
+                    totale_pane += 1
 
+                # Aggiunge alla lista visiva per l'admin
                 testo_schermo += f"- 👤 **{ord[0]}**: {', '.join(piatti_scelti)}\n"
-                
-                for p in piatti_scelti:
-                    totale_piatti[p] = totale_piatti.get(p, 0) + 1
             
             st.markdown(testo_schermo)
             st.markdown("---")
             
+            # --- COSTRUZIONE MESSAGGIO WHATSAPP DIVISO PER CATEGORIE ---
             st.subheader("Messaggio per il Ristorante")
             testo_whatsapp = f"*Ordine per pranzo NOE PUSIANO, {data_menu_letto}*\n"
             testo_whatsapp += f"*Totale colleghi:* {numero_colleghi}\n\n"
             
-            for piatto, qta in totale_piatti.items():
-                testo_whatsapp += f"{qta}x {piatto}\n"
+            def aggiungi_sezione(titolo, dizionario):
+                testo_sezione = ""
+                if dizionario:
+                    testo_sezione += f"*{titolo}*\n"
+                    for piatto, qta in dizionario.items():
+                        testo_sezione += f"{qta}x {piatto}\n"
+                    testo_sezione += "\n"
+                return testo_sezione
+
+            testo_whatsapp += aggiungi_sezione("PRIMI", totale_primi)
+            testo_whatsapp += aggiungi_sezione("SECONDI", totale_secondi)
+            testo_whatsapp += aggiungi_sezione("CONTORNI", totale_contorni)
+            testo_whatsapp += aggiungi_sezione("FRITTI", totale_fritti)
+            testo_whatsapp += aggiungi_sezione("PIADINE E PANINI", totale_piadine)
+            testo_whatsapp += aggiungi_sezione("DOLCI E FRUTTA", totale_extra)
+            
+            if totale_pane > 0:
+                testo_whatsapp += f"*PANE*\n{totale_pane}x Pane fresco\n\n"
 
             st.code(testo_whatsapp, language="text")
             
