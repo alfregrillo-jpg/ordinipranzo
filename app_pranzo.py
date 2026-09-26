@@ -24,7 +24,7 @@ def get_col(row, idx):
     return str(row[idx]).strip() if idx < len(row) else ""
 
 client = get_gsheets_client()
-sheet = client.open("Database_Pranzo")
+sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1y8rcz2mRrBhqC3QPuSniTZuTyKc1Oe74rKS3wNxM-ik/edit?gid=0#gid=0")
 users_sheet = sheet.worksheet("users")
 menu_sheet = sheet.worksheet("menu")
 orders_sheet = sheet.worksheet("orders")
