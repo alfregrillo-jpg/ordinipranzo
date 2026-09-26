@@ -1,26 +1,33 @@
 import streamlit as st
-import sqlite3
 import datetime
 import json
 import urllib.parse
 from PIL import Image
 import google.generativeai as genai
+import gspread
+from google.oauth2.service_account import Credentials
 
-# --- CONFIGURAZIONE DATABASE ---
-def init_db():
-    conn = sqlite3.connect('pranzo_ufficio_v2.db')
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, password TEXT, role TEXT)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS menu (date TEXT, category TEXT, item TEXT)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS orders (
-                    date TEXT, username TEXT, 
-                    primo TEXT, secondo TEXT, note_secondi TEXT, 
-                    contorno TEXT, fritti TEXT, piadine TEXT, 
-                    extra TEXT, note_extra TEXT, pane BOOLEAN, not_eating BOOLEAN)''')
-    
-    c.execute("INSERT OR IGNORE INTO users VALUES ('admin', 'admin123', 'admin')")
-    conn.commit()
-    conn.close()
+# --- CONNESSIONE GOOGLE SHEETS ---
+@st.cache_resource
+def get_gsheets_client():
+    try:
+        creds_dict = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
+        scopes = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+        return gspread.authorize(creds)
+    except Exception as e:
+        st.error("Errore credenziali Google. Controlla di aver copiato bene il JSON nei Secrets.")
+        st.stop()
+
+def get_col(row, idx):
+    """Aiuta a leggere le righe di Google Fogli evitando errori se mancano colonne"""
+    return str(row[idx]).strip() if idx < len(row) else ""
+
+client = get_gsheets_client()
+sheet = client.open("Database_Pranzo")
+users_sheet = sheet.worksheet("users")
+menu_sheet = sheet.worksheet("menu")
+orders_sheet = sheet.worksheet("orders")
 
 # --- FUNZIONE AI ---
 def parse_menu_from_image(file_foto):
@@ -35,21 +42,17 @@ def parse_menu_from_image(file_foto):
         Se la data non è specificata chiaramente, scrivi "Data non specificata".
         Se una categoria non c'è, metti una lista vuota [].
         """
-        
         file_foto.seek(0) 
         immagine = Image.open(file_foto)
         response = model.generate_content([prompt, immagine])
-        
         testo = response.text.replace("```json", "").replace("```", "").strip()
         return json.loads(testo)
-        
     except Exception as e:
         st.error(f"Errore di lettura AI: {str(e)}")
         return {}
 
 # --- INTERFACCIA APP ---
 st.set_page_config(page_title="Ordini Pranzo Ufficio", layout="centered")
-init_db()
 
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
@@ -63,16 +66,18 @@ if not st.session_state.logged_in:
     pass_input = st.text_input("Password", type="password")
     
     if st.button("Accedi"):
-        conn = sqlite3.connect('pranzo_ufficio_v2.db')
-        c = conn.cursor()
-        c.execute("SELECT role FROM users WHERE username=? AND password=?", (user_input, pass_input))
-        result = c.fetchone()
-        conn.close()
-        
+        users_data = users_sheet.get_all_values()
+        result = None
+        # Salta la prima riga se è l'intestazione
+        for row in users_data:
+            if len(row) >= 3 and row[0] == user_input and row[1] == pass_input:
+                result = row[2]
+                break
+                
         if result:
             st.session_state.logged_in = True
             st.session_state.username = user_input
-            st.session_state.role = result[0]
+            st.session_state.role = result
             st.rerun()
         else:
             st.error("Credenziali errate.")
@@ -92,117 +97,117 @@ elif st.session_state.role == 'admin':
         foto_menu = st.file_uploader("Scatta o carica la foto del menu", type=['jpg', 'png', 'jpeg'])
         
         if foto_menu and st.button("Analizza e Genera Menu"):
-            with st.spinner("L'Intelligenza Artificiale sta leggendo il menu..."):
+            with st.spinner("L'IA sta leggendo il menu, e salvando su Google Fogli..."):
                 menu_estratto = parse_menu_from_image(foto_menu)
                 
                 if menu_estratto:
-                    conn = sqlite3.connect('pranzo_ufficio_v2.db')
-                    c = conn.cursor()
-                    c.execute("DELETE FROM menu WHERE date=?", (oggi,))
+                    # Cancella il vecchio menu di oggi
+                    tutti_menu = menu_sheet.get_all_values()
+                    righe_da_cancellare = [i + 1 for i, row in enumerate(tutti_menu) if get_col(row, 0) == oggi]
+                    for idx in reversed(righe_da_cancellare):
+                        menu_sheet.delete_rows(idx)
                     
+                    # Salva il nuovo
+                    nuove_righe = []
                     for categoria, piatti in menu_estratto.items():
                         if categoria == "Data":
-                            c.execute("INSERT INTO menu VALUES (?, ?, ?)", (oggi, "DataEstratta", str(piatti)))
+                            nuove_righe.append([oggi, "DataEstratta", str(piatti)])
                             continue
                         for piatto in piatti:
-                            c.execute("INSERT INTO menu VALUES (?, ?, ?)", (oggi, categoria, piatto))
-                    conn.commit()
-                    conn.close()
-                    st.success("Menu aggiornato per tutti gli utenti!")
+                            nuove_righe.append([oggi, categoria, piatto])
+                    
+                    if nuove_righe:
+                        menu_sheet.append_rows(nuove_righe)
+                        
+                    st.success("Menu salvato in cassaforte su Google Fogli!")
 
     with tab2:
         st.subheader("Riepilogo Ordini")
-        conn = sqlite3.connect('pranzo_ufficio_v2.db')
-        c = conn.cursor()
+        menu_data = menu_sheet.get_all_values()
         
-        c.execute("SELECT item FROM menu WHERE date=? AND category='DataEstratta'", (oggi,))
-        data_row = c.fetchone()
-        data_menu_letto = data_row[0] if data_row else oggi
+        data_menu_letto = oggi
+        for row in menu_data:
+            if get_col(row, 0) == oggi and get_col(row, 1) == "DataEstratta":
+                data_menu_letto = get_col(row, 2)
         
-        c.execute("SELECT username, primo, secondo, note_secondi, contorno, fritti, piadine, extra, note_extra, pane, not_eating FROM orders WHERE date=?", (oggi,))
-        ordini = c.fetchall()
-        conn.close()
+        orders_data = orders_sheet.get_all_values()
+        ordini = [row for row in orders_data if get_col(row, 0) == oggi]
 
         if not ordini:
             st.info("Nessun ordine ricevuto finora oggi.")
         else:
             testo_schermo = "#### Dettaglio per persona (visibile solo a te)\n"
             
-            # Dizionari separati per categoria
-            totale_primi = {}
-            totale_secondi = {}
-            totale_contorni = {}
-            totale_fritti = {}
-            totale_piadine = {}
-            totale_extra = {}
+            totale_primi, totale_secondi, totale_contorni = {}, {}, {}
+            totale_fritti, totale_piadine, totale_extra = {}, {}, {}
             totale_pane = 0
-            
             numero_colleghi = 0
 
-            for ord in ordini:
-                if ord[10]: # Se not_eating
-                    testo_schermo += f"- 🚫 **{ord[0]}**: *Non mangia / Porta da casa*\n"
+            for row in ordini:
+                utente = get_col(row, 1)
+                not_eating = get_col(row, 11)
+                
+                if not_eating in ['1', 'TRUE', 'True']:
+                    testo_schermo += f"- 🚫 **{utente}**: *Non mangia / Porta da casa*\n"
                     continue
                 
                 numero_colleghi += 1
                 piatti_scelti = []
                 
-                # Primo
-                if ord[1] and ord[1] != "Nessuno": 
-                    piatti_scelti.append(ord[1])
-                    totale_primi[ord[1]] = totale_primi.get(ord[1], 0) + 1
+                primo = get_col(row, 2)
+                secondo = get_col(row, 3)
+                contorno = get_col(row, 5)
+                fritti = get_col(row, 6)
+                piadine = get_col(row, 7)
+                extra = get_col(row, 8)
+                pane = get_col(row, 10)
+
+                if primo and primo != "Nessuno": 
+                    piatti_scelti.append(primo)
+                    totale_primi[primo] = totale_primi.get(primo, 0) + 1
                     
-                # Secondo
-                if ord[2] and ord[2] != "Nessuno":
-                    sec = f"{ord[2]} ({ord[3]})" if ord[3] else ord[2]
-                    piatti_scelti.append(sec)
-                    totale_secondi[sec] = totale_secondi.get(sec, 0) + 1
+                if secondo and secondo != "Nessuno":
+                    piatti_scelti.append(secondo)
+                    totale_secondi[secondo] = totale_secondi.get(secondo, 0) + 1
                     
-                # Contorno
-                if ord[4] and ord[4] != "Nessuno": 
-                    piatti_scelti.append(ord[4])
-                    totale_contorni[ord[4]] = totale_contorni.get(ord[4], 0) + 1
+                if contorno and contorno != "Nessuno": 
+                    piatti_scelti.append(contorno)
+                    totale_contorni[contorno] = totale_contorni.get(contorno, 0) + 1
                     
-                # Fritti
-                if ord[5] and ord[5] != "Nessuno": 
-                    piatti_scelti.append(ord[5])
-                    totale_fritti[ord[5]] = totale_fritti.get(ord[5], 0) + 1
+                if fritti and fritti != "Nessuno": 
+                    piatti_scelti.append(fritti)
+                    totale_fritti[fritti] = totale_fritti.get(fritti, 0) + 1
                     
-                # Piadine
-                if ord[6] and ord[6] != "Nessuno": 
-                    piatti_scelti.append(ord[6])
-                    totale_piadine[ord[6]] = totale_piadine.get(ord[6], 0) + 1
+                if piadine and piadine != "Nessuno": 
+                    piatti_scelti.append(piadine)
+                    totale_piadine[piadine] = totale_piadine.get(piadine, 0) + 1
                     
-                # Dolce/Frutta
-                if ord[7] and ord[7] != "Nessuno":
-                    ext = f"{ord[7]} ({ord[8]})" if ord[8] else ord[7]
-                    piatti_scelti.append(ext)
-                    totale_extra[ext] = totale_extra.get(ext, 0) + 1
+                if extra and extra != "Nessuno":
+                    piatti_scelti.append(extra)
+                    totale_extra[extra] = totale_extra.get(extra, 0) + 1
                     
-                # Pane
-                if ord[9]: 
+                if pane in ['1', 'TRUE', 'True']: 
                     piatti_scelti.append("Pane fresco")
                     totale_pane += 1
 
-                # Aggiunge alla lista visiva per l'admin
-                testo_schermo += f"- 👤 **{ord[0]}**: {', '.join(piatti_scelti)}\n"
+                testo_schermo += f"- 👤 **{utente}**: {', '.join(piatti_scelti)}\n"
             
             st.markdown(testo_schermo)
             st.markdown("---")
             
-            # --- COSTRUZIONE MESSAGGIO WHATSAPP DIVISO PER CATEGORIE ---
+            # WhatsApp Message
             st.subheader("Messaggio per il Ristorante")
             testo_whatsapp = f"*Ordine per pranzo NOE PUSIANO, {data_menu_letto}*\n"
             testo_whatsapp += f"*Totale colleghi:* {numero_colleghi}\n\n"
             
             def aggiungi_sezione(titolo, dizionario):
-                testo_sezione = ""
+                t = ""
                 if dizionario:
-                    testo_sezione += f"*{titolo}*\n"
+                    t += f"*{titolo}*\n"
                     for piatto, qta in dizionario.items():
-                        testo_sezione += f"{qta}x {piatto}\n"
-                    testo_sezione += "\n"
-                return testo_sezione
+                        t += f"{qta}x {piatto}\n"
+                    t += "\n"
+                return t
 
             testo_whatsapp += aggiungi_sezione("PRIMI", totale_primi)
             testo_whatsapp += aggiungi_sezione("SECONDI", totale_secondi)
@@ -225,12 +230,12 @@ elif st.session_state.role == 'admin':
         new_user = st.text_input("Nome Utente Collega")
         new_pass = st.text_input("Password Collega")
         if st.button("Crea Account"):
-            conn = sqlite3.connect('pranzo_ufficio_v2.db')
-            c = conn.cursor()
-            c.execute("INSERT OR IGNORE INTO users VALUES (?, ?, 'user')", (new_user, new_pass))
-            conn.commit()
-            conn.close()
-            st.success(f"Utente {new_user} creato!")
+            utenti_esistenti = [get_col(r, 0) for r in users_sheet.get_all_values()]
+            if new_user in utenti_esistenti:
+                st.error("L'utente esiste già!")
+            else:
+                users_sheet.append_row([new_user, new_pass, 'user'])
+                st.success(f"Utente {new_user} aggiunto a Google Fogli!")
 
 # --- PANNELLO UTENTE ---
 elif st.session_state.role == 'user':
@@ -240,22 +245,44 @@ elif st.session_state.role == 'user':
         st.rerun()
 
     oggi = datetime.date.today().strftime("%Y-%m-%d")
-    conn = sqlite3.connect('pranzo_ufficio_v2.db')
-    c = conn.cursor()
     
-    c.execute("SELECT * FROM orders WHERE date=? AND username=?", (oggi, st.session_state.username))
-    ha_ordinato = c.fetchone()
+    # Controlla se ha già ordinato
+    orders_data = orders_sheet.get_all_values()
+    ha_ordinato = None
+    for row in orders_data:
+        if get_col(row, 0) == oggi and get_col(row, 1) == st.session_state.username:
+            ha_ordinato = row
+            break
     
     if ha_ordinato:
-        st.warning("Hai già inviato la tua scelta per oggi. Buon appetito (o buon digiuno)! 🍱")
+        st.success("Hai già inviato la tua scelta per oggi! 🎉")
+        st.markdown("### 📋 Riepilogo del tuo ordine:")
+        st.markdown("---")
+        
+        not_eating = get_col(ha_ordinato, 11)
+        if not_eating in ['1', 'TRUE', 'True']:
+            st.write("🚫 **Oggi non mangi / Porti da casa**")
+        else:
+            p1, p2, p_cont, p_fritti, p_piad, p_extra = get_col(ha_ordinato, 2), get_col(ha_ordinato, 3), get_col(ha_ordinato, 5), get_col(ha_ordinato, 6), get_col(ha_ordinato, 7), get_col(ha_ordinato, 8)
+            
+            if p1 and p1 != "Nessuno": st.write(f"- **Primo:** {p1}")
+            if p2 and p2 != "Nessuno": st.write(f"- **Secondo:** {p2}")
+            if p_cont and p_cont != "Nessuno": st.write(f"- **Contorno:** {p_cont}")
+            if p_fritti and p_fritti != "Nessuno": st.write(f"- **Fritti:** {p_fritti}")
+            if p_piad and p_piad != "Nessuno": st.write(f"- **Piadina/Panino:** {p_piad}")
+            if p_extra and p_extra != "Nessuno": st.write(f"- **Dolce/Frutta:** {p_extra}")
+            
+            if get_col(ha_ordinato, 10) in ['1', 'TRUE', 'True']: 
+                st.write(f"- 🍞 **Pane fresco richiesto**")
+        
     else:
-        c.execute("SELECT category, item FROM menu WHERE date=?", (oggi,))
-        menu_items = c.fetchall()
+        menu_data = menu_sheet.get_all_values()
+        menu_items = [row for row in menu_data if get_col(row, 0) == oggi]
         
         data_mostrata = "Oggi"
-        for cat, item in menu_items:
-            if cat == "DataEstratta":
-                data_mostrata = item
+        for row in menu_items:
+            if get_col(row, 1) == "DataEstratta":
+                data_mostrata = get_col(row, 2)
         
         if not menu_items:
             st.info("L'amministratore non ha ancora caricato il menu di oggi.")
@@ -267,7 +294,8 @@ elif st.session_state.role == 'user':
                 "Fritti": ["Nessuno"], "Piadina Panini Farciti": ["Nessuno"], "Dolci/Frutta": ["Nessuno"]
             }
             
-            for cat, item in menu_items:
+            for row in menu_items:
+                cat, item = get_col(row, 1), get_col(row, 2)
                 if cat in menu_dict:
                     menu_dict[cat].append(item)
 
@@ -278,10 +306,8 @@ elif st.session_state.role == 'user':
                 pane = st.checkbox("🍞 Voglio anche il pane fresco", value=False)
                 st.markdown("---")
                 
-                # PRIMI
                 primo = st.radio("Scegli il Primo:", menu_dict["Primi"])
                 
-                # SECONDI
                 secondo_selezionato = st.radio("Scegli il Secondo:", menu_dict["Secondi"] + ["componi il tuo piatto, scrivi tu"])
                 if secondo_selezionato == "componi il tuo piatto, scrivi tu":
                     secondo_finale = st.text_input("📝 Scrivi il tuo piatto qui sotto:")
@@ -290,12 +316,10 @@ elif st.session_state.role == 'user':
                 else:
                     secondo_finale = secondo_selezionato
                 
-                # CONTORNI, FRITTI, PIADINE
                 contorno = st.radio("Scegli il Contorno:", menu_dict["Contorni"])
                 fritti = st.radio("Scegli Fritti:", menu_dict["Fritti"])
                 piadine = st.radio("Scegli Piadina o Panino:", menu_dict["Piadina Panini Farciti"])
                 
-                # DOLCI/FRUTTA
                 extra_selezionato = st.radio("Scegli Dolce/Frutta:", menu_dict["Dolci/Frutta"] + ["scrivi la tua frutta"])
                 if extra_selezionato == "scrivi la tua frutta":
                     extra_finale = st.text_input("📝 Scrivi la frutta che desideri qui sotto:")
@@ -305,15 +329,17 @@ elif st.session_state.role == 'user':
                     extra_finale = extra_selezionato
                 
             if st.button("Invia Ordine Finale"):
-                if non_mangio:
-                    c.execute("INSERT INTO orders VALUES (?, ?, '', '', '', '', '', '', '', '', 0, 1)", 
-                              (oggi, st.session_state.username))
-                else:
-                    c.execute("INSERT INTO orders VALUES (?, ?, ?, ?, '', ?, ?, ?, ?, '', ?, 0)", 
-                              (oggi, st.session_state.username, primo, secondo_finale, contorno, fritti, piadine, extra_finale, pane))
+                # Valori da salvare su Google Fogli
+                pane_str = '1' if (not non_mangio and pane) else '0'
+                not_eating_str = '1' if non_mangio else '0'
                 
-                conn.commit()
+                if non_mangio:
+                    riga_ordine = [oggi, st.session_state.username, '', '', '', '', '', '', '', '', pane_str, not_eating_str]
+                else:
+                    riga_ordine = [oggi, st.session_state.username, primo, secondo_finale, '', contorno, fritti, piadine, extra_finale, '', pane_str, not_eating_str]
+                
+                with st.spinner("Invio ordine al server..."):
+                    orders_sheet.append_row(riga_ordine)
+                
                 st.success("Ordine inviato con successo al ristorante virtuale!")
                 st.rerun()
-                
-    conn.close()
