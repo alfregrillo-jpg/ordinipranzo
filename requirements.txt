@@ -1,2 +1,5 @@
 streamlit
 google-generativeai
+pillow
+gspread
+google-auth
