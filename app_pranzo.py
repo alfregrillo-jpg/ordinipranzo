@@ -23,11 +23,14 @@ def get_col(row, idx):
     """Aiuta a leggere le righe di Google Fogli evitando errori se mancano colonne"""
     return str(row[idx]).strip() if idx < len(row) else ""
 
-client = get_gsheets_client()
-sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1y8rcz2mRrBhqC3QPuSniTZuTyKc1Oe74rKS3wNxM-ik/edit?gid=0#gid=0")
-users_sheet = sheet.worksheet("users")
-menu_sheet = sheet.worksheet("menu")
-orders_sheet = sheet.worksheet("orders")
+@st.cache_resource
+def get_sheets():
+    # Streamlit aprirà il file una sola volta e lo terrà in memoria
+    client_gs = get_gsheets_client()
+    f = client_gs.open_by_url("https://docs.google.com/spreadsheets/d/1y8rcz2mRrBhqC3QPuSniTZuTyKc1Oe74rKS3wNxM-ik/edit?gid=0#gid=0")
+    return f.worksheet("users"), f.worksheet("menu"), f.worksheet("orders")
+
+users_sheet, menu_sheet, orders_sheet = get_sheets()
 
 # --- FUNZIONE AI ---
 def parse_menu_from_image(file_foto):
