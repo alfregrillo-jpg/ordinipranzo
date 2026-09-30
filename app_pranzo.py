@@ -32,7 +32,6 @@ users_sheet, menu_sheet, orders_sheet = get_sheets()
 def parse_menu_from_image(file_foto):
     try:
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-        # Uso il modello 3.7 per evitare i limiti di tentativi di oggi
         model = genai.GenerativeModel('gemini-3.7-flash')
         
         prompt = """
