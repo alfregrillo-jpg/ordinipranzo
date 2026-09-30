@@ -2,6 +2,7 @@ import streamlit as st
 import datetime
 import json
 import urllib.parse
+import time
 from PIL import Image
 import google.generativeai as genai
 import gspread
@@ -9,26 +10,21 @@ from google.oauth2.service_account import Credentials
 
 # --- CONNESSIONE GOOGLE SHEETS ---
 @st.cache_resource
-def get_gsheets_client():
+def get_sheets():
     try:
         creds_dict = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
         scopes = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
         creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
-        return gspread.authorize(creds)
+        client_gs = gspread.authorize(creds)
+        # Sostituisci il link qui sotto con il tuo indirizzo completo se necessario
+        f = client_gs.open("Database_Pranzo") 
+        return f.worksheet("users"), f.worksheet("menu"), f.worksheet("orders")
     except Exception as e:
-        st.error("Errore credenziali Google. Controlla di aver copiato bene il JSON nei Secrets.")
+        st.error("Errore credenziali Google.")
         st.stop()
 
 def get_col(row, idx):
-    """Aiuta a leggere le righe di Google Fogli evitando errori se mancano colonne"""
     return str(row[idx]).strip() if idx < len(row) else ""
-
-@st.cache_resource
-def get_sheets():
-    # Streamlit aprirà il file una sola volta e lo terrà in memoria
-    client_gs = get_gsheets_client()
-    f = client_gs.open_by_url("https://docs.google.com/spreadsheets/d/1y8rcz2mRrBhqC3QPuSniTZuTyKc1Oe74rKS3wNxM-ik/edit?gid=0#gid=0")
-    return f.worksheet("users"), f.worksheet("menu"), f.worksheet("orders")
 
 users_sheet, menu_sheet, orders_sheet = get_sheets()
 
@@ -71,7 +67,6 @@ if not st.session_state.logged_in:
     if st.button("Accedi"):
         users_data = users_sheet.get_all_values()
         result = None
-        # Salta la prima riga se è l'intestazione
         for row in users_data:
             if len(row) >= 3 and row[0] == user_input and row[1] == pass_input:
                 result = row[2]
@@ -104,13 +99,11 @@ elif st.session_state.role == 'admin':
                 menu_estratto = parse_menu_from_image(foto_menu)
                 
                 if menu_estratto:
-                    # Cancella il vecchio menu di oggi
                     tutti_menu = menu_sheet.get_all_values()
                     righe_da_cancellare = [i + 1 for i, row in enumerate(tutti_menu) if get_col(row, 0) == oggi]
                     for idx in reversed(righe_da_cancellare):
                         menu_sheet.delete_rows(idx)
                     
-                    # Salva il nuovo
                     nuove_righe = []
                     for categoria, piatti in menu_estratto.items():
                         if categoria == "Data":
@@ -120,12 +113,19 @@ elif st.session_state.role == 'admin':
                             nuove_righe.append([oggi, categoria, piatto])
                     
                     if nuove_righe:
-                        menu_sheet.append_rows(nuove_righe)
+                        # value_input_option="RAW" impedisce che Google modifichi la data
+                        menu_sheet.append_rows(nuove_righe, value_input_option="RAW")
                         
                     st.success("Menu salvato in cassaforte su Google Fogli!")
 
     with tab2:
-        st.subheader("Riepilogo Ordini")
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.subheader("Riepilogo Ordini")
+        with col2:
+            if st.button("🔄 Aggiorna"):
+                st.rerun()
+                
         menu_data = menu_sheet.get_all_values()
         
         data_menu_letto = oggi
@@ -198,7 +198,6 @@ elif st.session_state.role == 'admin':
             st.markdown(testo_schermo)
             st.markdown("---")
             
-            # WhatsApp Message
             st.subheader("Messaggio per il Ristorante")
             testo_whatsapp = f"*Ordine per pranzo NOE PUSIANO, {data_menu_letto}*\n"
             testo_whatsapp += f"*Totale colleghi:* {numero_colleghi}\n\n"
@@ -249,7 +248,6 @@ elif st.session_state.role == 'user':
 
     oggi = datetime.date.today().strftime("%Y-%m-%d")
     
-    # Controlla se ha già ordinato
     orders_data = orders_sheet.get_all_values()
     ha_ordinato = None
     for row in orders_data:
@@ -332,7 +330,6 @@ elif st.session_state.role == 'user':
                     extra_finale = extra_selezionato
                 
             if st.button("Invia Ordine Finale"):
-                # Valori da salvare su Google Fogli
                 pane_str = '1' if (not non_mangio and pane) else '0'
                 not_eating_str = '1' if non_mangio else '0'
                 
@@ -341,8 +338,10 @@ elif st.session_state.role == 'user':
                 else:
                     riga_ordine = [oggi, st.session_state.username, primo, secondo_finale, '', contorno, fritti, piadine, extra_finale, '', pane_str, not_eating_str]
                 
-                with st.spinner("Invio ordine al server..."):
-                    orders_sheet.append_row(riga_ordine)
+                with st.spinner("Salvataggio in corso... (attendere)"):
+                    # Forziamo l'inserimento alla riga 2 in modo che non finisca alla riga 1001 e "RAW" per il formato
+                    orders_sheet.insert_row(riga_ordine, index=2, value_input_option="RAW")
+                    time.sleep(1.5) # Pausa di sicurezza affinché Google registri l'inserimento
                 
                 st.success("Ordine inviato con successo al ristorante virtuale!")
                 st.rerun()
