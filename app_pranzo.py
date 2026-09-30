@@ -16,17 +16,12 @@ def get_sheets():
         scopes = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
         creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
         client_gs = gspread.authorize(creds)
-        # Sostituisci il link qui sotto con il tuo indirizzo completo se necessario
         f = client_gs.open("Database_Pranzo") 
         return f.worksheet("users"), f.worksheet("menu"), f.worksheet("orders")
-except Exception as e:
+    except Exception as e:
         st.error(f"Errore credenziali Google: {e}")
         st.stop()
-def get_col(row, idx):
-    return str(row[idx]).strip() if idx < len(row) else ""
-
-users_sheet, menu_sheet, orders_sheet = get_sheets()
-
+        
 # --- FUNZIONE AI ---
 def parse_menu_from_image(file_foto):
     try:
