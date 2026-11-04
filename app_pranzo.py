@@ -16,7 +16,7 @@ def get_sheets():
         scopes = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
         creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
         client_gs = gspread.authorize(creds)
-        f = client_gs.open("Database_Pranzo") 
+        f = client_gs.open_by_url("https://docs.google.com/spreadsheets/d/1y8rcz2mRrBhqC3QPuSniTZuTyKc1Oe74rKS3wNxM-ik/edit?gid=0#gid=0")
         return f.worksheet("users"), f.worksheet("menu"), f.worksheet("orders")
     except Exception as e:
         st.error(f"Errore credenziali Google: {e}")
