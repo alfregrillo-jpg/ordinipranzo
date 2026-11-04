@@ -13,20 +13,18 @@ from google.oauth2.service_account import Credentials
 def get_sheets():
     try:
         creds_dict = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
-        scopes = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
+        # ABBIAMO ELIMINATO GOOGLE DRIVE DA QUI:
+        scopes = ['https://www.googleapis.com/auth/spreadsheets']
         creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
         client_gs = gspread.authorize(creds)
-        f = client_gs.open_by_url("https://docs.google.com/spreadsheets/d/1y8rcz2mRrBhqC3QPuSniTZuTyKc1Oe74rKS3wNxM-ik/edit?gid=0#gid=0")
+        # USIAMO DIRETTAMENTE IL CODICE IDENTIFICATIVO DEL FILE:
+        f = client_gs.open_by_key("1y8rcz2mRrBhqC3QPuSniTZuTyKc1Oe74rKS3wNxM-ik") 
         return f.worksheet("users"), f.worksheet("menu"), f.worksheet("orders")
     except Exception as e:
         st.error(f"Errore credenziali Google: {e}")
         st.stop()
 
 def get_col(row, idx):
-    return str(row[idx]).strip() if idx < len(row) else ""
-
-# Le righe che mancavano!
-users_sheet, menu_sheet, orders_sheet = get_sheets()
 
 # --- FUNZIONE AI ---
 def parse_menu_from_image(file_foto):
