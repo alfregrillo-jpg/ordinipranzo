@@ -32,7 +32,7 @@ users_sheet, menu_sheet, orders_sheet = get_sheets()
 def parse_menu_from_image(file_foto):
     try:
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-        model = genai.GenerativeModel('gemini-3.7-flash')
+        model = genai.GenerativeModel('gemini-3.6-flash')
         
         prompt = """
         Leggi il menu in questa foto. Trova la data a cui si riferisce e tutti i piatti.
